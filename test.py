@@ -6,7 +6,6 @@ from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf
-myvar = "hello"
 
 
 tf.logging.set_verbosity(tf.logging.INFO)
