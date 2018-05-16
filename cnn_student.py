@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import time
 import numpy as np
 import tensorflow as tf
 
@@ -15,6 +16,9 @@ def cnn_model_fn(features, labels, mode, params ):
 
   temperature = params["temperature"]
   distillation = params["distillation"]
+
+  #global_step = tf.Variable(0, name='global_step', trainable=False)
+
   #logits_teacher = params["logits_teacher"]
   """Model function for CNN."""
   # Input Layer
@@ -113,6 +117,7 @@ def cnn_model_fn(features, labels, mode, params ):
   # PREDICTION ----------------------------------------------------
 
   if mode == tf.estimator.ModeKeys.PREDICT:
+    print(mystep)
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
 
@@ -129,10 +134,34 @@ def cnn_model_fn(features, labels, mode, params ):
     #loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
     if distillation == True:
         P_teacher = params["probabilities_teacher"]
-        P_teacher = tf.convert_to_tensor(P_teacher, dtype=tf.float32)
 
-        print(P_student.get_shape())
-        print(P_teacher.get_shape())
+        labels_shape = labels_onehot.get_shape()
+        N = labels_shape[0].value # size of current subset
+        #current_step = tf.get_variable("global_step")
+        current_step = 0; tf.train.get_global_step(graph = tf.get_default_graph())
+
+   
+
+        #mystep.assign(mystep+1)
+        #print("STEP VALUE")
+        #print(mystep.value)
+        #time.sleep(5)
+     
+
+        #index_min = current_step*N
+        #index_max = index_min+N
+        
+        #print(index_min)
+        #print(index_max)
+
+        #P_teacher = P_teacher[index_min:index_max,:]
+        P_teacher = tf.convert_to_tensor(P_teacher, dtype=tf.float32)
+        #print(P_teacher.get_shape())
+        #print(P_student.get_shape())
+        print(N)
+
+        #assert 1==2
+
         P_student = softmax_temperature(logits_student,temperature)
         labels_onehot = tf.one_hot(indices=tf.cast(labels, tf.int32), depth=10)
 
@@ -184,10 +213,6 @@ def cross_entropy(labels_onehot,probability):
 
 
 
-
-
-
-
 def main(unused_argv):
   # Load training and eval data
   mnist = tf.contrib.learn.datasets.load_dataset("mnist")
@@ -197,12 +222,17 @@ def main(unused_argv):
   eval_labels = np.asarray(mnist.test.labels, dtype=np.int32)
 
   probabilities_teacher = getTargets('soft_targets_teacher')
+
   #probabilities_teacher = tf.convert_to_tensor(probabilities_teacher) # tensorflow format
   #print(probabilities_teacher.get_shape())
 
+  train_data = train_data[0:1000,:]
+  train_labels = train_labels[0:1000]
+  probabilities_teacher = probabilities_teacher[0:1000,:]
   #assert 1==2
-  #print(probabilities_teacher.shape)
-
+  print(probabilities_teacher.shape)
+  print(train_data.shape)
+  print(train_labels.shape)
   #assert 1==2
   
   my_checkpointing_config = tf.estimator.RunConfig(
@@ -210,13 +240,10 @@ def main(unused_argv):
     save_checkpoints_steps = None
 	)
 
-  logits_teacher = 0; # import logits here. what if data is shuffled???
-  train_params = {"temperature": 1, "distillation": True, "probabilities_teacher": probabilities_teacher}
+  train_params = {"temperature": 1, "distillation": False, "probabilities_teacher": probabilities_teacher}
   # Create the Estimator
   mnist_classifier = tf.estimator.Estimator(
-      model_fn=cnn_model_fn, params = train_params)#, config = my_checkpointing_config)
-  #model_dir="/tmp/mnist_convnet_model",
-      #config = my_checkpointing_config
+      model_fn=cnn_model_fn, params = train_params)
 
   # Set up logging for predictions
   # Log the values in the "Softmax" tensor with label "probabilities"
@@ -224,20 +251,25 @@ def main(unused_argv):
   logging_hook = tf.train.LoggingTensorHook(
       tensors=tensors_to_log, every_n_iter=50)
 
+
+
+
   # Train the model
   train_input_fn = tf.estimator.inputs.numpy_input_fn(
       x={"x": train_data},
       y=train_labels,
-      batch_size=100,
+      batch_size=1000,
       num_epochs=None,
-      shuffle=True)
+      shuffle=False)
   mnist_classifier.train(
       input_fn=train_input_fn,
-      steps= 100,
+      steps= 500,
       hooks=[logging_hook])
 
-  # save soft tragets for student
-  
+
+
+
+
 
   # Evaluate the model and print results
   eval_input_fn = tf.estimator.inputs.numpy_input_fn(
@@ -248,33 +280,7 @@ def main(unused_argv):
   eval_results = mnist_classifier.evaluate(input_fn=eval_input_fn)
   print(eval_results)
 
-  '''
-  # run for to get soft targets
-  predict_input_fn = tf.estimator.inputs.numpy_input_fn(
-	      x={"x": train_data},
-	      y=train_labels,
-	      num_epochs=1,
-	      shuffle=False)
-	
-  pred_results = mnist_classifier.predict(input_fn=predict_input_fn)
 
-
-  temp_list = list(pred_results)
-  #print(len(temp_list))
-  #print(train_data.shape)
-  soft_targets = np.zeros((len(temp_list),10))
-
-  i = 0;
-  for element in temp_list:
-  	#print(line["probabilities"])
-  	soft_targets[i,:] = element["probabilities"]
-  	i = i+1
-  '''
-
-  #print(soft_targets[-1,:])
-  #saveTargets(soft_targets,'soft_targets')
-  #recall_tarets = getTargets('soft_targets')
-  #print(recall_tarets[-1,:])
 
 
 
