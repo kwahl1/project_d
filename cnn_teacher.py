@@ -11,7 +11,9 @@ import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.INFO)
 
 
-def cnn_model_fn(features, labels, mode):
+def cnn_model_fn(features, labels, mode, params ):
+
+  temperature = params["temperature"]
   """Model function for CNN."""
   # Input Layer
   # Reshape X to 4-D tensor: [batch_size, width, height, channels]
@@ -105,7 +107,9 @@ def cnn_model_fn(features, labels, mode):
       "classes": tf.argmax(input=logits, axis=1),
       # Add `softmax_tensor` to the graph. It is used for PREDICT and by the
       # `logging_hook`.
-      "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
+      "probabilities": tf.nn.softmax(tf.divide(logits,temperature), name="softmax_tensor"),
+
+      "logits": logits
   }
 
   #saver = tf.train.Saver({"soft_targets": predictions["probabilities"]})
@@ -150,7 +154,7 @@ def main(unused_argv):
 
   # Create the Estimator
   mnist_classifier = tf.estimator.Estimator(
-      model_fn=cnn_model_fn)#, config = my_checkpointing_config)
+      model_fn=cnn_model_fn, params = {"temperature": 1})#, config = my_checkpointing_config)
   #model_dir="/tmp/mnist_convnet_model",
       #config = my_checkpointing_config
 
@@ -169,7 +173,7 @@ def main(unused_argv):
       shuffle=True)
   mnist_classifier.train(
       input_fn=train_input_fn,
-      steps= 50,
+      steps= 500,
       hooks=[logging_hook])
 
   # save soft tragets for student
@@ -196,8 +200,6 @@ def main(unused_argv):
 
 
   temp_list = list(pred_results)
-  #print(len(temp_list))
-  #print(train_data.shape)
   soft_targets = np.zeros((len(temp_list),10))
 
   i = 0;
@@ -208,21 +210,14 @@ def main(unused_argv):
 
 
   #print(soft_targets[-1,:])
-  #saveTargets(soft_targets,'soft_targets')
+  saveTargets(soft_targets,'soft_targets_teacher')
   #recall_tarets = getTargets('soft_targets')
   #print(recall_tarets[-1,:])
-
-
-def myListener()
-	return
 
 
 def saveTargets(targets, filename):
 	np.save(filename, targets)
 
-def getTargets(filename):
-	data = np.load(filename+".npy")
-	return data
 
 
 if __name__ == "__main__":
