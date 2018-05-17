@@ -16,6 +16,18 @@ def cnn_model_fn(features, labels, mode, params ):
 
   temperature = params["temperature"]
   distillation = params["distillation"]
+  
+  #labels = tf.convert_to_tensor(labels[:,0], dtype=tf.int32)
+  P_teacher = labels[:,1:11]
+  labels = labels[:,0]
+  labels = tf.cast(labels,tf.int32)
+
+  print(type(labels))
+  print(labels.shape)
+  print(labels)
+
+
+  
 
   #global_step = tf.Variable(0, name='global_step', trainable=False)
 
@@ -31,6 +43,10 @@ def cnn_model_fn(features, labels, mode, params ):
   # Padding is added to preserve width and height.
   # Input Tensor Shape: [batch_size, 28, 28, 1]
   # Output Tensor Shape: [batch_size, 28, 28, 32]
+
+
+
+  '''
   conv1 = tf.layers.conv2d(
       inputs=input_layer,
       filters=16,
@@ -44,6 +60,9 @@ def cnn_model_fn(features, labels, mode, params ):
   # Output Tensor Shape: [batch_size, 14, 14, 32]
   pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
   pool1_flat = tf.reshape(pool1, [-1, 14 * 14 * 16])
+  '''
+
+
 
   # Convolutional Layer #2
   # Computes 64 features using a 5x5 filter.
@@ -98,12 +117,13 @@ def cnn_model_fn(features, labels, mode, params ):
 
   # -----------------------------------------------------------------------------
   #units = 1024
-  dense = tf.layers.dense(inputs=pool1_flat, units=500, activation=tf.nn.relu)
+  input_flat = tf.reshape(input_layer, [-1, 28*28])
+  dense = tf.layers.dense(inputs=input_flat, units=1024, activation=tf.nn.relu)
 
   # Add dropout operation; 0.6 probability that element will be kept
   #0.4
   dropout = tf.layers.dropout(
-      inputs=dense, rate=0.2, training=mode == tf.estimator.ModeKeys.TRAIN)
+      inputs=dense, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
 
   # Logits layer
   # Input Tensor Shape: [batch_size, 1024]
@@ -123,7 +143,6 @@ def cnn_model_fn(features, labels, mode, params ):
   # PREDICTION ----------------------------------------------------
 
   if mode == tf.estimator.ModeKeys.PREDICT:
-    print(mystep)
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
 
@@ -137,46 +156,23 @@ def cnn_model_fn(features, labels, mode, params ):
   
   # Configure the Training Op (for TRAIN mode)
   if mode == tf.estimator.ModeKeys.TRAIN:
-    #loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
+
     if distillation == True:
-        P_teacher = params["probabilities_teacher"]
 
         labels_shape = labels_onehot.get_shape()
         N = labels_shape[0].value # size of current subset
-        #current_step = tf.get_variable("global_step")
-        current_step = 0; tf.train.get_global_step(graph = tf.get_default_graph())
 
-   
-
-        #mystep.assign(mystep+1)
-        #print("STEP VALUE")
-        #print(mystep.value)
-        #time.sleep(5)
-     
-
-        #index_min = current_step*N
-        #index_max = index_min+N
-        
-        #print(index_min)
-        #print(index_max)
-
-        #P_teacher = P_teacher[index_min:index_max,:]
-        P_teacher = tf.convert_to_tensor(P_teacher, dtype=tf.float32)
-        #print(P_teacher.get_shape())
-        #print(P_student.get_shape())
-        #print(N)
-
-        #assert 1==2
+        P_teacher = tf.cast(P_teacher,tf.float32) 
 
         P_student = softmax_temperature(logits_student)
         P_student_temperature = softmax_temperature(logits_student,temperature)
-        labels_onehot = tf.one_hot(indices=tf.cast(labels, tf.int32), depth=10)
+        #labels_onehot = tf.one_hot(indices=tf.cast(labels, tf.int32), depth=10)
 
         # maybe use lambda here
-        T_square = np.square(temperature)
-   
+        T_square = 1 #np.square(temperature)
+        lambda_ = 1
 
-        loss = T_square*cross_entropy(labels_onehot,P_student)+T_square*cross_entropy(P_teacher,P_student_temperature)
+        loss = T_square*cross_entropy(labels_onehot,P_student)+lambda_*T_square*cross_entropy(P_teacher,P_student_temperature)
     else: 
         loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits_student)
 
@@ -233,16 +229,10 @@ def main(unused_argv):
   eval_labels = np.asarray(mnist.test.labels, dtype=np.int32)
 
   probabilities_teacher = readFile('soft_targets_teacher')
-  order = readFile("teacher_order")
+  train_labels_both = np.column_stack([train_labels,probabilities_teacher])
+  eval_labels = np.transpose(np.matrix(eval_labels))
 
-  # same random order as teacher
-  train_data = train_data[order,:]
-  train_labels = train_labels[order]
 
-  # use subset
-  train_data = train_data[0:1000,:]
-  train_labels = train_labels[0:1000]
-  probabilities_teacher = None #probabilities_teacher[0:1000,:]
 
   
   my_checkpointing_config = tf.estimator.RunConfig(
@@ -265,17 +255,17 @@ def main(unused_argv):
 
 
   # Train the model
+
   train_input_fn = tf.estimator.inputs.numpy_input_fn(
       x={"x": train_data},
-      y=train_labels,
-      batch_size=1000,
+      y=train_labels_both,
+      batch_size=100,
       num_epochs=None,
-      shuffle=False)
+      shuffle=True)
   mnist_classifier.train(
       input_fn=train_input_fn,
-      steps= 500,
+      steps= 1000,
       hooks=[logging_hook])
-
 
 
 
