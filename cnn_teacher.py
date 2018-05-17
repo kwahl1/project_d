@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf
+import random 
 
 
 tf.logging.set_verbosity(tf.logging.INFO)
@@ -107,9 +108,7 @@ def cnn_model_fn(features, labels, mode, params ):
       "classes": tf.argmax(input=logits, axis=1),
       # Add `softmax_tensor` to the graph. It is used for PREDICT and by the
       # `logging_hook`.
-      "probabilities": tf.nn.softmax(tf.divide(logits,temperature), name="softmax_tensor"),
-
-      "logits": logits
+      "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
   }
 
   #saver = tf.train.Saver({"soft_targets": predictions["probabilities"]})
@@ -118,22 +117,24 @@ def cnn_model_fn(features, labels, mode, params ):
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
   # Calculate Loss (for both TRAIN and EVAL modes)
-  loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
+  
 
   # Configure the Training Op (for TRAIN mode)
   if mode == tf.estimator.ModeKeys.TRAIN:
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.08)
+    loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=tf.divide(logits,temperature))
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.1)
     train_op = optimizer.minimize(
         loss=loss,
         global_step=tf.train.get_global_step())
     return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
   # Add evaluation metrics (for EVAL mode)
+  loss_eval = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
   eval_metric_ops = {
       "accuracy": tf.metrics.accuracy(
           labels=labels, predictions=predictions["classes"])}
   return tf.estimator.EstimatorSpec(
-      mode=mode, loss=loss, eval_metric_ops=eval_metric_ops, predictions = predictions)
+      mode=mode, loss=loss_eval, eval_metric_ops=eval_metric_ops, predictions = predictions)
 
 
 
@@ -147,6 +148,10 @@ def main(unused_argv):
   eval_data = mnist.test.images  # Returns np.array
   eval_labels = np.asarray(mnist.test.labels, dtype=np.int32)
   
+  train_data, order = shuffleData(train_data)
+  train_labels = train_labels[order]
+
+
   my_checkpointing_config = tf.estimator.RunConfig(
     save_checkpoints_secs = None,
     save_checkpoints_steps = None
@@ -154,7 +159,7 @@ def main(unused_argv):
 
   # Create the Estimator
   mnist_classifier = tf.estimator.Estimator(
-      model_fn=cnn_model_fn, params = {"temperature": 1})#, config = my_checkpointing_config)
+      model_fn=cnn_model_fn, params = {"temperature": 2})#, config = my_checkpointing_config)
   #model_dir="/tmp/mnist_convnet_model",
       #config = my_checkpointing_config
 
@@ -173,7 +178,7 @@ def main(unused_argv):
       shuffle=False)
   mnist_classifier.train(
       input_fn=train_input_fn,
-      steps= 500,
+      steps= 1000,
       hooks=[logging_hook])
 
   # save soft tragets for student
@@ -210,12 +215,24 @@ def main(unused_argv):
 
 
   #print(soft_targets[-1,:])
-  saveTargets(soft_targets,'soft_targets_teacher')
+  writeToFile(order,'teacher_order')
+  writeToFile(soft_targets,'soft_targets_teacher')
   #recall_tarets = getTargets('soft_targets')
   #print(recall_tarets[-1,:])
 
 
-def saveTargets(targets, filename):
+
+def shuffleData(data):
+  size = data.shape
+  nRows = size[0]
+  order = list(range(nRows))
+  random.shuffle(order)
+  data = data[order,:]
+
+  return data, order
+
+
+def writeToFile(targets, filename):
 	np.save(filename, targets)
 
 
@@ -223,3 +240,10 @@ def saveTargets(targets, filename):
 if __name__ == "__main__":
   tf.app.run()
 
+
+'''
+mylist = np.array([[1 ,2, 3],[1, 1 ,1],[2,2,2]])
+print(mylist)
+list2 = shuffleData(mylist)["data"]
+print(list2)
+'''

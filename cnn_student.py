@@ -43,15 +43,17 @@ def cnn_model_fn(features, labels, mode, params ):
   # Input Tensor Shape: [batch_size, 28, 28, 32]
   # Output Tensor Shape: [batch_size, 14, 14, 32]
   pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+  pool1_flat = tf.reshape(pool1, [-1, 14 * 14 * 16])
 
   # Convolutional Layer #2
   # Computes 64 features using a 5x5 filter.
   # Padding is added to preserve width and height.
   # Input Tensor Shape: [batch_size, 14, 14, 32]
   # Output Tensor Shape: [batch_size, 14, 14, 64]
+  '''
   conv2 = tf.layers.conv2d(
       inputs=pool1,
-      filters=32,
+      filters=16,
       kernel_size=5,
       padding="same",
       activation=tf.nn.relu)
@@ -60,11 +62,14 @@ def cnn_model_fn(features, labels, mode, params ):
   # Input Tensor Shape: [batch_size, 14, 14, 64]
   # Output Tensor Shape: [batch_size, 7, 7, 64]
   pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+  pool2_flat = tf.reshape(pool2, [-1, 7 * 7 * 16])
+  '''
 
   # Flatten tensor into a batch of vectors
   # Input Tensor Shape: [batch_size, 7, 7, 64]
   # Output Tensor Shape: [batch_size, 7 * 7 * 64]
-  #pool2_flat = tf.reshape(pool2, [-1, 7 * 7 * 16])
+ 
+  '''
   conv3 = tf.layers.conv2d(
       inputs=pool2,
       filters=64,
@@ -83,7 +88,7 @@ def cnn_model_fn(features, labels, mode, params ):
       activation=tf.nn.relu)
   pool4 = tf.layers.max_pooling2d(inputs=conv4, pool_size=[2, 2], strides=2)
   pool4_flat = tf.reshape(pool4, [-1, 1 * 1 * 128])
-  
+  '''
 
   # Dense Layer
   # Densely connected layer with 1024 neurons
@@ -92,12 +97,13 @@ def cnn_model_fn(features, labels, mode, params ):
 
 
   # -----------------------------------------------------------------------------
-
-  dense = tf.layers.dense(inputs=pool4_flat, units=1024, activation=tf.nn.relu)
+  #units = 1024
+  dense = tf.layers.dense(inputs=pool1_flat, units=500, activation=tf.nn.relu)
 
   # Add dropout operation; 0.6 probability that element will be kept
+  #0.4
   dropout = tf.layers.dropout(
-      inputs=dense, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
+      inputs=dense, rate=0.2, training=mode == tf.estimator.ModeKeys.TRAIN)
 
   # Logits layer
   # Input Tensor Shape: [batch_size, 1024]
@@ -158,19 +164,23 @@ def cnn_model_fn(features, labels, mode, params ):
         P_teacher = tf.convert_to_tensor(P_teacher, dtype=tf.float32)
         #print(P_teacher.get_shape())
         #print(P_student.get_shape())
-        print(N)
+        #print(N)
 
         #assert 1==2
 
-        P_student = softmax_temperature(logits_student,temperature)
+        P_student = softmax_temperature(logits_student)
+        P_student_temperature = softmax_temperature(logits_student,temperature)
         labels_onehot = tf.one_hot(indices=tf.cast(labels, tf.int32), depth=10)
 
         # maybe use lambda here
-        loss = cross_entropy(labels_onehot,P_student)+cross_entropy(P_teacher,P_student)
+        T_square = np.square(temperature)
+   
+
+        loss = T_square*cross_entropy(labels_onehot,P_student)+T_square*cross_entropy(P_teacher,P_student_temperature)
     else: 
         loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits_student)
 
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.08)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01)
     train_op = optimizer.minimize(
         loss=loss,
         global_step=tf.train.get_global_step())
@@ -207,6 +217,7 @@ def cross_entropy(labels_onehot,probability):
     tensor_shape = labels_onehot.get_shape()
     N = tensor_shape[0].value
     assert not N==None
+    assert not N==0
     p_transpose = tf.transpose(probability)
     l_cross = -1*tf.log(tf.diag_part(tf.matmul(labels_onehot,p_transpose)))
     return tf.divide(tf.reduce_sum(l_cross),N)
@@ -221,26 +232,25 @@ def main(unused_argv):
   eval_data = mnist.test.images  # Returns np.array
   eval_labels = np.asarray(mnist.test.labels, dtype=np.int32)
 
-  probabilities_teacher = getTargets('soft_targets_teacher')
+  probabilities_teacher = readFile('soft_targets_teacher')
+  order = readFile("teacher_order")
 
-  #probabilities_teacher = tf.convert_to_tensor(probabilities_teacher) # tensorflow format
-  #print(probabilities_teacher.get_shape())
+  # same random order as teacher
+  train_data = train_data[order,:]
+  train_labels = train_labels[order]
 
+  # use subset
   train_data = train_data[0:1000,:]
   train_labels = train_labels[0:1000]
-  probabilities_teacher = probabilities_teacher[0:1000,:]
-  #assert 1==2
-  print(probabilities_teacher.shape)
-  print(train_data.shape)
-  print(train_labels.shape)
-  #assert 1==2
+  probabilities_teacher = None #probabilities_teacher[0:1000,:]
+
   
   my_checkpointing_config = tf.estimator.RunConfig(
     save_checkpoints_secs = None,
     save_checkpoints_steps = None
 	)
 
-  train_params = {"temperature": 1, "distillation": False, "probabilities_teacher": probabilities_teacher}
+  train_params = {"temperature": 2, "distillation": False, "probabilities_teacher": probabilities_teacher}
   # Create the Estimator
   mnist_classifier = tf.estimator.Estimator(
       model_fn=cnn_model_fn, params = train_params)
@@ -249,7 +259,7 @@ def main(unused_argv):
   # Log the values in the "Softmax" tensor with label "probabilities"
   tensors_to_log = {"probabilities": "softmax_tensor"}
   logging_hook = tf.train.LoggingTensorHook(
-      tensors=tensors_to_log, every_n_iter=50)
+      tensors=tensors_to_log, every_n_iter=1000)
 
 
 
@@ -284,7 +294,7 @@ def main(unused_argv):
 
 
 
-def getTargets(filename):
+def readFile(filename):
 	data = np.load(filename+".npy")
 	return data
 
