@@ -169,10 +169,23 @@ def cnn_model_fn(features, labels, mode, params ):
         #labels_onehot = tf.one_hot(indices=tf.cast(labels, tf.int32), depth=10)
 
         # maybe use lambda here
-        T_square = 1 #np.square(temperature)
+        T_square = 1#np.square(temperature)
         lambda_ = 1
+        #assert 1==2
 
-        loss = T_square*cross_entropy(labels_onehot,P_student)+lambda_*T_square*cross_entropy(P_teacher,P_student_temperature)
+        #loss = T_square*cross_entropy(labels_onehot,P_student)+lambda_*T_square*cross_entropy(P_teacher,P_student_temperature)
+        loss_hard = T_square*cross_entropy_2(labels_onehot,P_student)
+        loss_soft = T_square*cross_entropy_2(P_teacher,P_student_temperature)
+
+        loss = loss_hard+lambda_*loss_soft
+
+        print(type(loss))
+        print(T_square)
+        print(tf.shape(loss_hard))
+        print(tf.shape(loss_soft))
+        print(tf.shape(loss_hard+loss_soft))
+        print(tf.shape(loss))
+        #assert 1==2
     else: 
         loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits_student)
 
@@ -197,19 +210,30 @@ def cnn_model_fn(features, labels, mode, params ):
 
 
 
+def cross_entropy_2(labels_onehot,probability):
+  #y_transpose = tf.transpose(labels_onehot)
+  tensor_shape = labels_onehot.get_shape()
+  N = tensor_shape[0].value
+  assert not N==None
+  assert not N==0
+  p_transpose = tf.transpose(probability)
 
+
+  l_cross = -1*tf.diag_part(tf.matmul(labels_onehot,tf.log(p_transpose)))
+  return tf.divide(tf.reduce_sum(l_cross),N)
 
 
 def softmax_temperature(logits, T=1):
     logits_temp = tf.divide(logits,T)
     softmax_temp = tf.divide(tf.exp(logits_temp),
-      tf.reduce_sum(tf.exp(logits_temp),axis=1, keep_dims=True))
+    tf.reduce_sum(tf.exp(logits_temp),axis=1, keep_dims=True))
     return softmax_temp
 
 
 
 def cross_entropy(labels_onehot,probability):
-    #y_transpose = tf.transpose(labels_onehot)
+    # incorrect entropy, use cross_entropy_2
+    
     tensor_shape = labels_onehot.get_shape()
     N = tensor_shape[0].value
     assert not N==None
@@ -240,7 +264,7 @@ def main(unused_argv):
     save_checkpoints_steps = None
 	)
 
-  train_params = {"temperature": 2, "distillation": False, "probabilities_teacher": probabilities_teacher}
+  train_params = {"temperature": 2, "distillation": True, "probabilities_teacher": probabilities_teacher}
   # Create the Estimator
   mnist_classifier = tf.estimator.Estimator(
       model_fn=cnn_model_fn, params = train_params)
